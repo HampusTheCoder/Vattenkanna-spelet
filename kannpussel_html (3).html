@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Kannpussel — Häll vatten</title>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  margin:0; padding:0;
+  display:flex; justify-content:center;
+  background: linear-gradient(to bottom, #a2c4fc, #ffffff);
+}
+.container {
+  padding:20px;
+  text-align:center;
+  background: rgba(255,255,255,0.85);
+  border-radius:20px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+}
+.play-area { display:flex; gap:40px; justify-content:center; align-items:flex-end; margin-top:30px; }
+.jug { width:120px; border:2px solid #333; border-radius:10px; position:relative; display:flex; align-items:flex-end; cursor:pointer; }
+.water { position:absolute; bottom:0; width:100%; background:linear-gradient(to top, #00f, #00a); display:flex; align-items:flex-end; justify-content:center; color:white; font-weight:bold; border-bottom-left-radius:8px; border-bottom-right-radius:8px; transition: height 0.3s; }
+.jug-label { position:absolute; top:-30px; width:100%; text-align:center; font-weight:bold; }
+.status { margin-top:20px; font-size:20px; }
+#resetBtn {
+  padding:10px 20px;
+  font-size:16px;
+  font-weight:bold;
+  border:none;
+  border-radius:12px;
+  background: linear-gradient(to right, #4facfe, #00f2fe);
+  color:white;
+  cursor:pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+#resetBtn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+}
+#winOverlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9999; display:flex; align-items:center; justify-content:center; }
+.winBox { background:white; padding:40px 60px; border-radius:20px; font-size:32px; font-weight:700; text-align:center; box-shadow:0 10px 40px rgba(0,0,0,0.3); cursor:pointer; }
+.instructions { font-size:18px; margin-top:10px; color:#333; }
+.highlight { font-weight:bold; color:#d00; }
+.target-box { margin-top:15px; padding:10px 20px; display:inline-block; font-size:20px; background: #fffa8c; border-radius:10px; font-weight:bold; color:#d00; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Kannpussel — Häll vatten</h1>
+  <div class="instructions">
+    Klicka eller dra vatten mellan kannor för att nå målet.
+  </div>
+  <div id="targetBox" class="target-box"></div>
+  <div id="status"></div>
+  <button id="resetBtn">Återställ</button>
+  <div class="play-area" id="playArea"></div>
+</div>
+
+<div id="winOverlay">
+  <div class="winBox">Grattis! Du klarade spelet!<br><span style='font-size:20px;'>Klicka för nästa nivå</span></div>
+</div>
+
+<script>
+const levels = [
+  { capacities: [8,5,3], target: 4 },
+  { capacities: [10,7,3], target: 6 },
+  { capacities: [12,8,5], target: 7 },
+  { capacities: [9,4,3], target: 5 },
+  { capacities: [11,6,5], target: 8 }
+];
+
+let currentLevel = 0;
+let jugsData = [];
+let sourceJug = null;
+let dragJugIndex = null;
+
+const playArea = document.getElementById('playArea');
+const status = document.getElementById('status');
+const targetBox = document.getElementById('targetBox');
+const resetBtn = document.getElementById('resetBtn');
+const winOverlay = document.getElementById('winOverlay');
+
+function initLevel(){
+  const level = levels[currentLevel];
+  jugsData = level.capacities.map((cap,i) => ({capacity: cap, volume: i===0 ? cap : 0}));
+  sourceJug = null;
+  dragJugIndex = null;
+  buildJugs();
+  updateStatus();
+  winOverlay.style.display = 'none';
+  targetBox.textContent = `Mål för denna nivå: ${level.target} liter`;
+}
+
+function buildJugs(){
+  playArea.innerHTML = '';
+  const maxCapacity = Math.max(...jugsData.map(j => j.capacity));
+  jugsData.forEach((jug,i)=>{
+    const jugDiv = document.createElement('div');
+    jugDiv.className = 'jug';
+    jugDiv.dataset.index = i;
+    jugDiv.style.height = (jug.capacity / maxCapacity * 300)+'px';
+
+    const waterDiv = document.createElement('div');
+    waterDiv.className = 'water';
+    waterDiv.style.height = (jug.volume/jug.capacity*100)+'%';
+    waterDiv.textContent = jug.volume+' L';
+
+    const label = document.createElement('div');
+    label.className = 'jug-label';
+    label.textContent = jug.capacity+' L';
+
+    jugDiv.appendChild(waterDiv);
+    jugDiv.appendChild(label);
+
+    jugDiv.addEventListener('click',()=>jugClicked(i));
+
+    jugDiv.draggable = true;
+    jugDiv.addEventListener('dragstart', e => dragJugIndex = i);
+    jugDiv.addEventListener('dragover', e => e.preventDefault());
+    jugDiv.addEventListener('drop', e => {
+      if(dragJugIndex !== null && dragJugIndex !== i){
+        pour(dragJugIndex, i);
+        dragJugIndex = null;
+        buildJugs();
+        checkWin();
+      }
+    });
+
+    playArea.appendChild(jugDiv);
+  });
+}
+
+function jugClicked(index){
+  if(sourceJug === null){
+    sourceJug = index;
+  } else if(sourceJug === index){
+    sourceJug = null;
+  } else {
+    pour(sourceJug,index);
+    sourceJug = null;
+    buildJugs();
+    checkWin();
+  }
+}
+
+function pour(from,to){
+  const src = jugsData[from];
+  const tgt = jugsData[to];
+  const amount = Math.min(src.volume, tgt.capacity - tgt.volume);
+  if(amount<=0) return;
+  src.volume -= amount;
+  tgt.volume += amount;
+}
+
+function checkWin(){
+  const level = levels[currentLevel];
+  if(jugsData.some(j=>j.volume === level.target)){
+    winOverlay.style.display='flex';
+  }
+}
+
+function updateStatus(){
+  const level = levels[currentLevel];
+  status.innerHTML = `Få exakt <span class='highlight'>${level.target}</span> liter i någon av kannorna.`;
+}
+
+resetBtn.addEventListener('click',initLevel);
+winOverlay.addEventListener('click',()=>{
+  currentLevel = (currentLevel+1)%levels.length;
+  initLevel();
+});
+
+initLevel();
+</script>
+</body>
+</html>
